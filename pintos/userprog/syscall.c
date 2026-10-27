@@ -39,7 +39,7 @@ void syscall_handler (struct intr_frame *);
 static bool is_invaild_filename(char * filename);
 static struct fd_info * seek_fd_info (struct thread *curr, int fd);
 static struct fd_info * dup_fd_info(struct fd_info *oldfd_info, int newfd);
-static bool is_valid_buffer(char *buffer, int size, void* arg);
+static bool is_valid_buffer(char *buffer, int size, bool is_write);
 
 static void sys_halt (struct intr_frame *f);
 static void sys_exit (struct intr_frame *f);
@@ -243,7 +243,7 @@ sys_open (struct intr_frame *f) {
 		thread_exit();
 	}
 	
-	if (!is_valid_buffer(fname, strlen(fname), '\0') || is_invaild_filename(fname)) {
+	if (!is_valid_buffer(fname, strlen(fname), 0) || is_invaild_filename(fname)) {
 		f->R.rax = -1;       
 		return;
 	}
@@ -300,7 +300,7 @@ sys_read (struct intr_frame *f) {
 	char *buffer = (char *)f->R.rsi;
 	unsigned size = f->R.rdx;
 
-	if(!is_valid_buffer(buffer, size, '\0')){
+	if(!is_valid_buffer(buffer, size, 0)){
 		thread_current()->exit_status = -1;
 		thread_exit();
 	}
@@ -384,7 +384,7 @@ sys_write (struct intr_frame *f) {
 	int fd = f->R.rdi;
 	uint64_t size = f->R.rdx;
 
-	if (!is_valid_buffer(buffer, size, NULL)) {
+	if (!is_valid_buffer(buffer, size, 1)) {
 		thread_current()->exit_status = -1;
 		thread_exit(); // 접근하면 안 되는 포인터를 주면 프로세스 종료 
 		
@@ -535,10 +535,19 @@ static bool is_invaild_filename(char * filename){
 	return !((size > 0) && (size <= (NAME_MAX)));
 }
 
-static bool is_valid_buffer(char *buffer, int size, void *arg) {
+/**
+ * valid_buffer인지 검사한다는 것은 그 주소에 있는 값을 곧 사용한다는 뜻
+ * 따라서 pml4_get_page 실행해보고, NULL이면 vm_claim_page를 사용해 메모리에 등재하는 과정을 동시에 실시한다.
+ */
+static bool is_valid_buffer(char *buffer, int size, bool is_write) {
 	struct thread *curr = thread_current();
-	if (buffer == arg || is_kernel_vaddr(buffer + size) || pml4_get_page(curr->pml4, buffer) == NULL) {
+	if (is_kernel_vaddr(buffer + size)) {
 		return false;
+	}
+	for (char* addr = pg_round_down(buffer); buffer + size > addr; addr+=(1<<12)) {
+		if (!pml4_get_page(curr->pml4 ,addr) && !vm_claim_page(addr)) {
+			return false;
+		}
 	}
 	return true;
 }
