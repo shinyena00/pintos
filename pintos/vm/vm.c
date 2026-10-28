@@ -287,35 +287,72 @@ supplemental_page_table_init (struct supplemental_page_table *spt ) {
 	return true;
 }
 /* Copy supplemental page table from src to dst */
+
+static struct page *
+page_copy(struct page *src){
+	
+	struct frame *frame = NULL;
+	struct page *page = malloc(sizeof(struct page));
+	if (!page) {
+		goto err;
+	}
+	*page = *src;
+
+	if (VM_TYPE(page->operations->type)==VM_UNINIT && !page->uninit.aux) {
+
+	} else if (VM_TYPE(page->operations->type)==VM_UNINIT && page->uninit.aux) {
+		char *temp = malloc(sizeof(struct file_src));
+		if (!temp) {
+			goto err;
+		}
+		memcpy(temp, page->uninit.aux, sizeof(struct file_src));
+		page->uninit.aux = temp;
+	} else if (VM_TYPE(page->operations->type)==VM_ANON && page->frame) {
+		frame = vm_get_frame();
+		memcpy(frame->kva, page->frame->kva, 1<<12);
+		page->frame = frame;
+		page->frame->page = page;
+		if(!pml4_set_page(thread_current()->pml4, page->va, page->frame->kva, page->is_writable)){
+			goto err;
+		}
+	} else {
+		NOT_REACHED();
+	}
+	return page;
+
+err:
+	if(page){
+		free(page);
+	}
+	if(frame){
+		palloc_free_page(frame->kva);
+		free(frame);
+	}
+	return NULL;
+}
+
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src) {
-	
-	struct hash_iterator i;
 
-	hash_first (&i, &src->hash);
-	while (hash_next (&i)) {
-		struct page *page = malloc(sizeof(struct page));
-		*page = *(struct page *) hash_entry (hash_cur (&i), struct page, element);
-		
-		switch (VM_TYPE(page->operations->type)){
-		case VM_UNINIT:
-			char *temp = malloc(sizeof(struct file_src));
-			memcpy(temp, page->uninit.aux, sizeof(struct file_src));
-			page->uninit.aux = temp;
-			break;
-		case VM_ANON:
-			struct frame *frame = vm_get_frame();
-			memcpy(frame->kva, page->frame->kva, 1<<12);
-			page->frame = frame;
-			page->frame->page = page;
-			pml4_set_page(thread_current()->pml4, page->va, page->frame->kva, page->is_writable);
-			break; 
+	struct hash_iterator i;
+	hash_first(&i, &src->hash);
+
+	while (hash_next(&i)) {
+		struct page *page = page_copy(hash_entry(hash_cur(&i),struct page,element));
+		if (!page) {
+			return 0;
 		}
-		hash_insert(&dst->hash, &page->element);
+		hash_insert(&dst->hash,&page->element);
 	}
-	return 990623;
+	return 1;
 }
+
+// bool
+// supplemental_page_table_copy (struct supplemental_page_table *dst, struct supplemental_page_table *src) {
+// 	for(struct hash_iterator i,*it=(hash_first(&i, &src->hash),&i);hash_next(it);hash_insert(&dst->hash,&page_copy(hash_entry(hash_cur(it),struct page,element))->element));
+// 	return 1;
+// }
 
 static void
 spt_free_page (struct hash_elem *e, void *aux) {
