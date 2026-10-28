@@ -8,7 +8,7 @@
 #include "threads/mmu.h"
 #include "lib/kernel/hash.h"
 #include "lib/string.h"
-
+#include <debug.h>
 #define MAX_STACK_ADDR 0x47380000
 
 #define MAX_STACK_ADDR (USER_STACK - (1 << 20))
@@ -288,52 +288,95 @@ supplemental_page_table_init (struct supplemental_page_table *spt ) {
 	return true;
 }
 
+
+static bool 
+page_copy_uninit (struct page *dst, struct page *src) {
+	ASSERT(src->frame == NULL);
+	memcpy(dst, src, sizeof(*src));
+
+	struct file_src *new_aux = NULL;
+	new_aux = malloc(sizeof(*new_aux));
+
+	if(new_aux == NULL) {
+		return false;
+	}
+
+	memcpy(new_aux, src->uninit.aux, sizeof(*new_aux));
+	dst->uninit.aux = new_aux;
+
+	return true;
+}
+
+static bool 
+page_copy_anon (struct page *dst, struct page *src) {
+	memcpy(dst, src, sizeof(*src));
+	struct frame *new_frame;
+
+	if(src->frame == NULL) {
+		PANIC("todo. invoked on swapped out cxt");
+	} else {
+
+		if (!(new_frame = vm_get_frame())) {
+			NOT_REACHED();
+			return false;
+		}
+		memcpy(new_frame->kva, src->frame->kva, PGSIZE);
+		dst->frame = new_frame;
+		new_frame->page = dst;
+		if(!pml4_set_page(thread_current()->pml4, dst->va, dst->frame->kva, dst->is_writable)) {
+			free(new_frame);
+			return false;
+		}
+	}
+	return true;
+
+}
+
+static bool 
+page_copy_file_backed (struct page *dst, struct page *src) {
+	PANIC("todo. invoked on VM_FILE");
+}
+
 /* Copy supplemental page table from src to dst */
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst,
-	struct supplemental_page_table *src) {
+	struct supplemental_page_table *src) {	
 
 	struct hash_iterator i;
 	hash_first (&i, &src->hash);
-
+	
 	while (hash_next (&i)) {
-		struct page *page = malloc(sizeof(struct page));
-		if(page == NULL) {
+		struct page *src_page = hash_entry (hash_cur (&i), struct page, element);	
+
+		struct page *new_page = malloc(sizeof(struct page));
+		if(new_page == NULL) {
 			return false;
 		}
-		memcpy(page, hash_entry (hash_cur (&i), struct page, element), sizeof(*page));
 
-		if( page->frame != NULL ) {
-			
-			struct frame *new_frame;
-			if (!(new_frame = vm_get_frame())) {
-				return false;
-			}
-			memcpy(new_frame->kva, page->frame->kva, PGSIZE);
-			page->frame = new_frame;
-			new_frame->page = page;
-			pml4_set_page(thread_current()->pml4, page->va, page->frame->kva, page->is_writable);
-		} else {
-			enum vm_type type = page->operations->type;
-			if(type == VM_UNINIT) {
-				struct file_src *new_aux = NULL;
-				new_aux = malloc(sizeof(*new_aux));
-
-				if(new_aux == NULL) {
+		enum vm_type type = src_page->operations->type; // type을 바꿔주는게 아니기 때문에, 가장 바깥 타입 가져오기
+		switch(type) {
+			case VM_UNINIT:
+				if ( !page_copy_uninit(new_page, src_page) ) {
+					free(new_page);
 					return false;
 				}
-
-				memcpy(new_aux, page->uninit.aux, sizeof(*new_aux));
-				page->uninit.aux = new_aux;
-			} else if (type == VM_ANON) {
-				PANIC("todo. invoked on swapped out cxt");
-			} else if (type == VM_FILE) {
-				PANIC("todo. invoked on VM_FILE");
-			}
+				break;
+			case VM_ANON:
+				if ( !page_copy_anon(new_page, src_page) ) {
+					free(new_page);
+					return false;
+				}
+				break;
+			case VM_FILE:
+				if ( !page_copy_file_backed(new_page, src_page) ) {
+					free(new_page);
+					return false;
+				}
+				break;
 		}
-
-		hash_insert(&dst->hash, &page->element);
-	}
+		// TODO: hash insert 실패시 누수
+		hash_insert(&dst->hash, &new_page->element);
+	}	
 	return true;
 }
 
