@@ -288,8 +288,27 @@ supplemental_page_table_init (struct supplemental_page_table *spt ) {
 }
 /* Copy supplemental page table from src to dst */
 bool
-supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-		struct supplemental_page_table *src UNUSED) {
+supplemental_page_table_copy (struct supplemental_page_table *dst,
+		struct supplemental_page_table *src) {
+	dst->hash.hash = src->hash.hash;
+	dst->hash.less = dst->hash.less;
+	
+	struct hash_iterator i;
+
+	hash_first (&i, &src->hash);
+	while (hash_next (&i)) {
+		struct page *page = malloc(sizeof(struct page));
+		*page = *(struct page *) hash_entry (hash_cur (&i), struct page, element);
+		struct frame *frame = vm_get_frame();
+		if(page->frame){
+			memcpy(frame->kva, page->frame->kva, 1<<12);
+		}
+		page->frame = frame;
+		page->frame->page = page;
+		pml4_set_page(thread_current()->pml4, page->va, page->frame->kva, page->is_writable);
+		hash_insert(&dst->hash, &page->element);
+	}
+	return 1;
 }
 
 static void
