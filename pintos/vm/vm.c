@@ -338,31 +338,30 @@ page_copy_anon(struct page *dst_page, struct page *src_page) {
 }
 
 static bool
-page_copy_file_backed(struct page *dst_page, struct page *src_page) {
-
-	struct file_src *new_file_src = malloc(sizeof(*new_file_src));
-	 if(new_file_src == NULL) {
-		return false;
-	}
-	
+copy_file_page(struct page *dst_page, struct page *src_page) {
 	memcpy(dst_page, src_page, sizeof(struct page));
 	dst_page->frame = NULL;
 
-	struct frame *new_frame;
-	if (!(new_frame = vm_get_frame())) {
-		free(new_file_src);
-		return false;
+	if (dst_page->file.file_src = copy_file_src(src_page)) {
+		return true;
 	}
-	
-	//memcpy old file_src -> new file_src + set new ptr
+	return false;
+}
 
-	new_frame->page = dst_page;
-	dst_page->frame = new_frame;
-	memcpy(new_frame->kva, src_page->frame->kva, PGSIZE);
-	return true;
+static bool
+copy_file_frame(struct page *dst_page, struct page *src_page) {
 
 }
 
+static bool
+page_copy_file_backed(struct page *dst_page, struct page *src_page) {
+	if (copy_file_page(dst_page, src_page)) {
+		if (copy_file_frame(dst_page, src_page)) {
+			return true;
+		}
+	}
+	return false;
+}
 
 static struct page * 
 page_copy(struct page *src_page) {
