@@ -172,7 +172,6 @@ readdir (int fd, char name[READDIR_MAX_LEN + 1]) {
 }
 
 bool
-
 isdir (int fd) {
 	return syscall1 (SYS_ISDIR, fd);
 }
