@@ -42,7 +42,7 @@ void destroy_mmap_info_container(struct thread *t, mmap_info_action_func *mmap_f
 void do_munmap_all (struct thread *);
 void destroy_mmap (struct mmap_info *);
 void fork_mmap (struct thread *);
-bool copy_mmap(struct mmap_info *from, void *aux);
+bool copy_mmap_info(struct mmap_info *from, void *aux);
 
 bool mmap_update_file_page(struct thread *);
 #endif
