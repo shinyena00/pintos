@@ -108,6 +108,10 @@ struct page *spt_find_page (struct supplemental_page_table *spt,
 bool spt_insert_page (struct supplemental_page_table *spt, struct page *page);
 void spt_remove_page (struct supplemental_page_table *spt, struct page *page);
 
+struct page *spt_get_unaccessed_page_with_frame (struct thread *thread, struct supplemental_page_table *spt);
+struct page *spt_get_any_page_with_frame (struct supplemental_page_table *spt);
+void spt_set_unaccessed (struct thread *thread, struct supplemental_page_table *spt);
+
 void vm_init (void);
 bool vm_try_handle_fault (struct intr_frame *f, void *addr, bool user,
 		bool write, bool not_present);

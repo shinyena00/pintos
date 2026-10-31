@@ -55,7 +55,8 @@ static struct lock tid_lock;
 static struct list destruction_req;
 
 /* mlfqs를 위한 전체 thread list */
-static struct list all_list;
+// static struct list all_list;
+struct list all_list;
 
 /* cpu가 바쁜 정도 -> bss여서 0으로 초기화 됨  */
 static int load_avg;
@@ -135,9 +136,9 @@ thread_init (void) {
 	list_init (&sleep_list); /*추가*/
 	list_init (&destruction_req);
 	if(thread_mlfqs){
-		list_init (&all_list); /*all_list추가*/
 		list_init (&dirty_list);
 	}
+	list_init (&all_list); /*all_list추가*/
 
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
@@ -423,9 +424,9 @@ thread_exit (void) {
 	/* Just set our status to dying and schedule another process.
 	   We will be destroyed during the call to schedule_tail(). */
 	intr_disable ();
-	if(thread_mlfqs){
-		list_remove(&(thread_current()->all));
-	}
+	// if(thread_mlfqs){
+	list_remove(&(thread_current()->all));
+	// }
 	do_schedule (THREAD_DYING);
 	NOT_REACHED ();
 }
@@ -690,11 +691,11 @@ init_thread (struct thread *t, const char *name, int priority) {
 	list_init(&t->child_list);
 	t->my_info = NULL;
 
-	if(thread_mlfqs){
-		enum intr_level old_level = intr_disable();
-		list_push_front(&all_list, &(t->all));
-		intr_set_level(old_level);
-	}
+	// if(thread_mlfqs){
+	enum intr_level old_level = intr_disable();
+	list_push_back(&all_list, &(t->all));
+	intr_set_level(old_level);
+	// }
 
 }
 

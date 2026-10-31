@@ -8,6 +8,7 @@
 #include "threads/mmu.h"
 #include "lib/kernel/hash.h"
 #include <string.h>
+#include "threads/thread.h"
 
 #define MAX_STACK_ADDR 0x47380000
 
@@ -134,8 +135,43 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
-	 /* TODO: The policy for eviction is up to you. */
-
+	/* TODO: The policy for eviction is up to you. */
+	struct thread *thread = NULL;
+	struct page *page = NULL;
+	enum intr_level old_level = intr_disable();
+	for(int size = list_size(&all_list); size --> 0; list_push_back(&all_list, &thread->all)){
+		thread = list_entry(list_pop_front(&all_list), struct thread, all);
+		if (thread && thread->pml4) {
+			page = spt_get_unaccessed_page_with_frame(thread, &thread->spt);
+			if (page) {
+				list_push_back(&all_list, &thread->all);
+				intr_set_level(old_level);
+				break;
+			}		
+		}
+	}
+	intr_set_level(old_level);
+	for(struct list_elem *elem = list_begin(&all_list); elem != list_tail(&all_list); elem = list_next(elem)){
+		if (!list_entry(elem, struct thread, all)->pml4) {
+			continue;
+		}
+		spt_set_unaccessed(list_entry(elem, struct thread, all), &list_entry(elem, struct thread, all)->spt);
+	}
+	if (!page) {
+		for(struct list_elem *elem = list_begin(&all_list); elem != list_tail(&all_list); elem = list_next(elem)){
+			if (!list_entry(elem, struct thread, all)->pml4) {
+				continue;
+			}
+			page = spt_get_any_page_with_frame(&list_entry(elem, struct thread, all)->spt);
+			if (page) {
+				break;
+			}
+		}
+	}
+	if (!page) {
+		return NULL;
+	}
+	victim = page->frame;
 	return victim;
 }
 
@@ -144,17 +180,16 @@ vm_get_victim (void) {
 static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim = vm_get_victim ();
-	/* TODO: swap out the victim and return the evicted frame. */
-
-
-	PANIC("todo");
-
+	if (!victim) {
+		return NULL;
+	}
+	swap_out(victim->page);
 	palloc_free_page(victim->kva);
 	/**
 	 * Update corresponding page status -
 	 * using swap_out would be adeq
 	 */
-	return NULL;
+	return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -446,6 +481,52 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 		}
 	}
 	return true;
+}
+
+void
+spt_set_unaccessed (struct thread *thread, struct supplemental_page_table *spt) {
+	struct hash_iterator i;
+	struct hash_elem *curr;
+	struct page *page;
+
+	hash_first(&i, &spt->hash);
+	while (curr = hash_next(&i)) {
+		page = hash_entry(curr, struct page, element);
+		pml4_set_accessed(thread->pml4, page->va, 0);
+	}
+	return;
+}
+
+struct page *
+spt_get_unaccessed_page_with_frame (struct thread *thread, struct supplemental_page_table *spt) {
+	struct hash_iterator i;
+	struct hash_elem *curr;
+	struct page *page;
+
+	hash_first(&i, &spt->hash);
+	while (curr = hash_next(&i)) {
+		page = hash_entry(curr, struct page, element);
+		if (page->frame && !pml4_is_accessed(thread->pml4, page->va)) {
+			return page;
+		}
+	}
+	return NULL;
+}
+
+struct page *
+spt_get_any_page_with_frame (struct supplemental_page_table *spt) {
+	struct hash_iterator i;
+	struct hash_elem *curr;
+	struct page *page;
+
+	hash_first(&i, &spt->hash);
+	while (curr = hash_next(&i)) {
+		page = hash_entry(curr, struct page, element);
+		if (page->frame) {
+			return page;
+		}
+	}
+	return NULL;
 }
 
 static void
