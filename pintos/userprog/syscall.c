@@ -609,7 +609,9 @@ static bool
 is_sys_mmap_args_vaild(void *addr, size_t length) {
 	if(pg_ofs(addr) != 0
 		|| length == 0
-		|| addr_isnt_user_vaild(addr) || addr_isnt_user_vaild(((char *)addr) + length) || !is_va_vaild(addr, length)) { 
+		|| addr_isnt_user_vaild(addr) 
+		|| addr_isnt_user_vaild(((char *)addr) + length) 
+		|| !is_va_vaild(addr, length)) { 
 		return false;
 	}
 	return true;

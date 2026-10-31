@@ -229,7 +229,6 @@ file_init_mmap_info(struct thread *t) {
 void 
 remove_mmap_info(struct thread *t, struct mmap_info *mmap_info) {
 	hash_delete(&t->mmap_info_container.hash, &mmap_info->element);
-
 	free(mmap_info);
 }
 
