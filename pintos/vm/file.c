@@ -153,7 +153,7 @@ fork_mmap (struct thread *src) {
 }
 
 bool
-copy_mmap(struct mmap_info *from, void *aux UNUSED) { 
+copy_mmap_info(struct mmap_info *from, void *aux UNUSED) { 
 	return set_mmap_info(thread_current(), file_reopen(from->file), from->addr, from->length);
 }
 
