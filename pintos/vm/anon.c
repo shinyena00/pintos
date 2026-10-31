@@ -3,10 +3,13 @@
 #include "vm/vm.h"
 #include "devices/disk.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
 static struct bitmap *swap_table;
+static struct lock *swap_table_lock;
+
 static bool anon_swap_in (struct page *page, void *kva);
 static bool anon_swap_out (struct page *page);
 static void anon_destroy (struct page *page);
@@ -24,6 +27,9 @@ void
 vm_anon_init (void) {
 	/* TODO: Set up the swap_disk. */
 	swap_disk = disk_get (1, 1);
+	/*전역에서 관리하는 bitmap이라 init할 때 만들어주고 power off 될 때까지 destroy할 필요 없음*/
+	bitmap_create(disk_size(swap_disk) / (PGSIZE / DISK_SECTOR_SIZE));
+	lock_init(swap_table_lock);
 }
 
 /* Initialize the file mapping */
@@ -44,11 +50,26 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	return true;
 }
 
+static disk_sector_t
+get_sector_num (size_t swap_index) {
+	return swap_index * (PGSIZE / DISK_SECTOR_SIZE);
+}
+
+static void
+free_disk_slot (size_t swap_index) {
+	lock_acquire(swap_table_lock);
+	bitmap_flip(swap_disk, swap_index);
+	lock_release(swap_table_lock);
+}
+
 static void
 copy_frame_from_swap (size_t swap_index, void *kva) {
+	disk_sector_t start_sector = get_sector_num(swap_index);
+	lock_acquire(swap_table_lock);
 	for(int i = 0; i < 8; i++) {
-		disk_read(swap_disk, anon_page->swap_index, kva + (i * PGSIZE));
+		disk_read(swap_disk, (start_sector + i), kva + (i * DISK_SECTOR_SIZE));
 	}
+	lock_release(swap_table_lock);
 }
 
 static bool
@@ -56,7 +77,7 @@ pop_frame_from_swap (struct anon_page *anon_page, void *kva) {
 
 	copy_frame_from_swap(anon_page->swap_index, kva);
 
-	destroy_disk(anon_page->swap_index);
+	free_disk_slot(anon_page->swap);
 
 	anon_page->swap_index = NULL;
 }
@@ -70,8 +91,37 @@ anon_swap_in (struct page *page, void *kva) {
 	
 }
 
+static void
+frame_copy_to_disk (size_t swap_index, void *kva) {
+	disk_sector_t start_sector = get_sector_num(swap_index);
+
+	lock_acquire(swap_table_lock);
+	for(int i = 0; i < 8; i++) {
+		disk_read(swap_disk, (start_sector + i), kva + (i * DISK_SECTOR_SIZE));
+	}
+	lock_release(swap_table_lock);
+}
+
 static size_t
-push_frame_to_swap (void * kva) {
+acquire_slot (void) {
+	lock_acquire(swap_table_lock);
+	size_t swap_index = bitmap_scan_and_flip(swap_disk, 0, 1, false);
+	lock_release(swap_table_lock);
+
+	/*swap 할 수 있는 slot이 없으면 panic*/
+	if(swap_index = BITMAP_ERROR) {
+		PANIC("swap slots are full");
+	}
+}
+
+static size_t
+push_frame_to_swap (struct anon_page *anon_page) {
+
+	size_t swap_index = acquire_slot();
+
+	frame_copy_to_disk(swap_index);
+
+	return swap_index;
 
 }
 
@@ -80,11 +130,9 @@ static bool
 anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
 
-	if ((anon_page->swap_index = push_frame_to_swap (page->frame->kva)) != NULL) {
-		return true;
-	}
-	return false;
+	anon_page->swap_index = push_frame_to_swap (anon_page);
 
+	return true;
 }
 
 /* Destroy the anonymous page. PAGE will be freed by the caller. */
@@ -95,7 +143,6 @@ anon_destroy (struct page *page) {
 	if(page->frame == NULL) {
 		PANIC("todo, after swap Impl. Abnormal if no swapped out frames");
 	} else {
-
 		free(page->frame);
 	}
 }
