@@ -25,6 +25,7 @@
 
 #ifdef VM
 #include "vm/vm.h"
+#include "vm/file.h"
 #endif
 
 #define PAGE_SIZE 4096
@@ -216,6 +217,14 @@ __do_fork (void *aux) {
 	supplemental_page_table_init (&current->spt);
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
 		goto error;
+	
+	// copy mmap_info_container and update to reopened file ref. for each file pages
+	{
+		/* duplicate mmap_info_container */
+		fork_mmap(parent);
+		// + add update file_src reference to reopened file
+		update_file_page(current);
+	}
 #else
 	if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
 		goto error;

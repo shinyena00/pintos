@@ -152,9 +152,9 @@ fork_mmap (struct thread *src) {
 	mmap_info_apply(src, copy_mmap, NULL);
 }
 
-void
-copy_mmap(struct mmap_info *from){
-	set_mmap_info(thread_current(), file_reopen(from->file), from->addr, from->length);
+bool
+copy_mmap(struct mmap_info *from, void *aux UNUSED) { 
+	return set_mmap_info(thread_current(), file_reopen(from->file), from->addr, from->length);
 }
 
 /* Do the munmap */
@@ -172,6 +172,13 @@ do_munmap_all (struct thread *curr){
 	mmap_info_apply(curr, destroy_mmap, NULL);
 }
 
+static 
+
+bool mmap_update_file_page(struct thread *) {
+
+	// mmap apply
+	// for each page  -> update file_src according to new mmap_info
+}
 
 /* --------------------------------- */
 
@@ -190,7 +197,7 @@ mmap_info_hash_func (const struct hash_elem *e, void *aux) {
 }
 
 static bool
-mmap_info_hash_less (struct hash_elem *a, struct hash_elem *b, void *aux) {
+mmap_info_hash_less (const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
 	return mmap_info_hash_func(a,NULL) < mmap_info_hash_func(b,NULL);
 }
 

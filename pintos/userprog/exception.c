@@ -152,7 +152,7 @@ page_fault (struct intr_frame *f) {
 	/* Count page faults. */
 	page_fault_cnt++;
 
-	if (!user && is_user_vaddr(fault_addr)) {
+	if ( is_user_vaddr(fault_addr)) {
 		thread_current()->exit_status = -1;
 		thread_exit();
 	}

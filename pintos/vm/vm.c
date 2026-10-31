@@ -339,7 +339,28 @@ page_copy_anon(struct page *dst_page, struct page *src_page) {
 
 static bool
 page_copy_file_backed(struct page *dst_page, struct page *src_page) {
-	return false;
+
+	struct file_src *new_file_src = malloc(sizeof(*new_file_src));
+	 if(new_file_src == NULL) {
+		return false;
+	}
+	
+	memcpy(dst_page, src_page, sizeof(struct page));
+	dst_page->frame = NULL;
+
+	struct frame *new_frame;
+	if (!(new_frame = vm_get_frame())) {
+		free(new_file_src);
+		return false;
+	}
+	
+	//memcpy old file_src -> new file_src + set new ptr
+
+	new_frame->page = dst_page;
+	dst_page->frame = new_frame;
+	memcpy(new_frame->kva, src_page->frame->kva, PGSIZE);
+	return true;
+
 }
 
 
