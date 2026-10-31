@@ -4,15 +4,19 @@
 #include "devices/disk.h"
 #include "threads/vaddr.h"
 #include "threads/synch.h"
+#include "lib/kernel/bitmap.h"
+#include "threads/malloc.h"
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
 static struct bitmap *swap_table;
-static struct lock *swap_table_lock;
+static struct lock swap_table_lock;
 
 static bool anon_swap_in (struct page *page, void *kva);
 static bool anon_swap_out (struct page *page);
 static void anon_destroy (struct page *page);
+
+#define NO_SLOT BITMAP_ERROR
 
 /* DO NOT MODIFY this struct */
 static const struct page_operations anon_ops = {
@@ -28,8 +32,8 @@ vm_anon_init (void) {
 	/* TODO: Set up the swap_disk. */
 	swap_disk = disk_get (1, 1);
 	/*전역에서 관리하는 bitmap이라 init할 때 만들어주고 power off 될 때까지 destroy할 필요 없음*/
-	bitmap_create(disk_size(swap_disk) / (PGSIZE / DISK_SECTOR_SIZE));
-	lock_init(swap_table_lock);
+	swap_table = bitmap_create(disk_size(swap_disk) / (PGSIZE / DISK_SECTOR_SIZE));
+	lock_init(&swap_table_lock);
 }
 
 /* Initialize the file mapping */
@@ -44,7 +48,7 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	
 	page->anon = (struct anon_page) {
 		/* TODO: executable을 evict할 때 swap slot으로 보내지 않는다면, aux 복사해줘야 함*/
-		.swap_index = NULL
+		.swap_index = NO_SLOT
 	};
 
 	return true;
@@ -57,37 +61,39 @@ get_sector_num (size_t swap_index) {
 
 static void
 free_disk_slot (size_t swap_index) {
-	lock_acquire(swap_table_lock);
-	bitmap_flip(swap_disk, swap_index);
-	lock_release(swap_table_lock);
+	lock_acquire(&swap_table_lock);
+	bitmap_reset(swap_table, swap_index);
+	lock_release(&swap_table_lock);
 }
 
 static void
 copy_frame_from_swap (size_t swap_index, void *kva) {
 	disk_sector_t start_sector = get_sector_num(swap_index);
-	lock_acquire(swap_table_lock);
 	for(int i = 0; i < 8; i++) {
 		disk_read(swap_disk, (start_sector + i), kva + (i * DISK_SECTOR_SIZE));
 	}
-	lock_release(swap_table_lock);
 }
 
-static bool
+static void
 pop_frame_from_swap (struct anon_page *anon_page, void *kva) {
+
+	ASSERT(anon_page->swap_index != NO_SLOT);
 
 	copy_frame_from_swap(anon_page->swap_index, kva);
 
-	free_disk_slot(anon_page->swap);
+	free_disk_slot(anon_page->swap_index);
 
-	anon_page->swap_index = NULL;
+	anon_page->swap_index = NO_SLOT;
 }
 
 /* Swap in the page by read contents from the swap disk. */
-static bool
+static bool /*이건 실패하는 경로가 없는 건가?*/
 anon_swap_in (struct page *page, void *kva) {
 	struct anon_page *anon_page = &page->anon;
 
-	return pop_frame_from_swap(anon_page, kva);
+	pop_frame_from_swap(anon_page, kva);
+
+	return;
 	
 }
 
@@ -95,31 +101,31 @@ static void
 frame_copy_to_disk (size_t swap_index, void *kva) {
 	disk_sector_t start_sector = get_sector_num(swap_index);
 
-	lock_acquire(swap_table_lock);
 	for(int i = 0; i < 8; i++) {
-		disk_read(swap_disk, (start_sector + i), kva + (i * DISK_SECTOR_SIZE));
+		disk_write(swap_disk, (start_sector + i), kva + (i * DISK_SECTOR_SIZE));
 	}
-	lock_release(swap_table_lock);
 }
 
 static size_t
 acquire_slot (void) {
-	lock_acquire(swap_table_lock);
-	size_t swap_index = bitmap_scan_and_flip(swap_disk, 0, 1, false);
-	lock_release(swap_table_lock);
+	lock_acquire(&swap_table_lock);
+	size_t swap_index = bitmap_scan_and_flip(swap_table, 0, 1, false);
+	lock_release(&swap_table_lock);
 
 	/*swap 할 수 있는 slot이 없으면 panic*/
-	if(swap_index = BITMAP_ERROR) {
+	if(swap_index == BITMAP_ERROR) {
 		PANIC("swap slots are full");
 	}
+
+	return swap_index;
 }
 
 static size_t
-push_frame_to_swap (struct anon_page *anon_page) {
+push_frame_to_swap (struct anon_page *anon_page, void *kva) {
 
 	size_t swap_index = acquire_slot();
 
-	frame_copy_to_disk(swap_index);
+	frame_copy_to_disk(swap_index, kva);
 
 	return swap_index;
 
@@ -130,7 +136,7 @@ static bool
 anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
 
-	anon_page->swap_index = push_frame_to_swap (anon_page);
+	anon_page->swap_index = push_frame_to_swap (anon_page, page->frame->kva);
 
 	return true;
 }
