@@ -221,7 +221,7 @@ __do_fork (void *aux) {
 	// copy mmap_info_container and update to reopened file ref. for each file pages
 	{
 		/* duplicate mmap_info_container */
-		fork_mmap(parent);
+		copy_mmap_info(parent);
 		// + add update file_src reference to reopened file
 		update_file_page(current);
 	}
