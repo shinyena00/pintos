@@ -39,28 +39,84 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	return true;
 }
 
+static off_t
+read_page_from_file( struct file * file, char *kva, uint32_t read_bytes, off_t offset) {
+	bool lock_prev_status = false;
+	if(lock_prev_status = lock_held_by_current_thread(&file_lock)) {
+		lock_release(&file_lock);
+	}
+
+	lock_acquire(&file_lock);
+	off_t read = file_read_at(file, kva, read_bytes, offset);
+	lock_release(&file_lock);
+
+	if(lock_prev_status) {
+		lock_acquire(&file_lock);
+	}
+
+	memset(kva + read_bytes, 0, PGSIZE - read); 
+
+	return read;
+}
+
+static off_t
+write_page_to_file ( struct file * file, char *kva, uint32_t write_bytes, off_t offset) {
+
+	bool lock_prev_status = false;
+	if(lock_prev_status = lock_held_by_current_thread(&file_lock)) {
+		lock_release(&file_lock);
+	}
+
+	lock_acquire(&file_lock);
+	off_t write = file_write_at(file, kva, write_bytes, offset);
+	lock_release(&file_lock);
+
+	if(lock_prev_status) {
+		lock_acquire(&file_lock);
+	}
+
+	return write;
+}
+
 /* Swap in the page by read contents from the file. */
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
-	struct file_page *file_page UNUSED = &page->file;
+	struct file_page *file_page = &page->file;
+	struct file_src *file_src = file_page->file_src;
+
+	off_t read = read_page_from_file(file_src->file, page->frame->kva, file_src->read_bytes, file_src->offset);
+	return true;
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out (struct page *page) {
-	struct file_page *file_page UNUSED = &page->file;
-
-
+	struct file_page *file_page = &page->file;
+	struct file_src *file_src = file_page->file_src;
+	off_t write = 0;
+	if (!pml4_is_dirty(thread_current ()->pml4, page->va)){
+		memset(page->frame->kva, 0, PGSIZE);
+	} else {
+		write = write_page_to_file(file_src->file, page->frame->kva, file_src->read_bytes, file_src->offset);
+	}
+	return true;
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy (struct page *page) {
 	struct file_page *file_page = &page->file;
+	struct file_src *file_src = file_page->file_src;
 
 	if(page->frame == NULL) {
 		// nothing to do.
 	} else {
+		off_t write = 0;
+		if (!pml4_is_dirty(thread_current ()->pml4, page->va)){
+			memset(page->frame->kva, 0, PGSIZE);
+		} else {
+			write = write_page_to_file(file_src->file, page->frame->kva, file_src->read_bytes, file_src->offset);
+		}
 		free(page->frame);
 	}
 	
@@ -74,20 +130,7 @@ lazy_load_mmap (struct page *page, void *aux) {
 	uint32_t read_bytes = file_meta->read_bytes;
 	off_t read;
 
-	bool lock_prev_status = false;
-	if(lock_prev_status = lock_held_by_current_thread(&file_lock)) {
-		lock_release(&file_lock);
-	}
-
-	lock_acquire(&file_lock);
-	read = file_read_at(file_meta->file, kva, read_bytes, file_meta->offset);
-	lock_release(&file_lock);
-
-	if(lock_prev_status) {
-		lock_acquire(&file_lock);
-	}
-
-	memset(kva + read, 0, PGSIZE - read); 
+	read = read_page_from_file( file_meta->file, kva, read_bytes, file_meta->offset);
 
 	page->file.file_src = file_meta;
 
@@ -226,10 +269,14 @@ file_init_mmap_info(struct thread *t) {
 	return hash_init (&(container->hash), mmap_info_hash_func, mmap_info_hash_less, NULL);
 }
 
+/* delete and free mmap_info from mmap_info_container and close opened file*/
 void 
 remove_mmap_info(struct thread *t, struct mmap_info *mmap_info) {
 	hash_delete(&t->mmap_info_container.hash, &mmap_info->element);
 
+	// TODO: - file lock 걸어야
+	file_close(mmap_info->file);
+	// TODO: - file lock release
 	free(mmap_info);
 }
 
@@ -321,13 +368,14 @@ destroy_mmap (struct mmap_info *mmap_info)  {
 	char *addr = mmap_info -> addr;
 	struct file *file = mmap_info -> file;
 	size_t length = mmap_info -> length;
-
 	for(size_t seek = 0; seek < length; seek += PGSIZE){
 		struct page *page = spt_find_page(&thread_current()->spt, addr + seek);
 		if (page == NULL) {
 			return;
 		}
-		spt_remove_page(&thread_current()->spt, page);
+		void *va = page->va;
+		spt_remove_page(&thread_current()-> spt, page);
+		pml4_clear_page(thread_current ()-> pml4, va);
 	}
 	remove_mmap_info(thread_current(), mmap_info);
 }

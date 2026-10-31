@@ -42,7 +42,7 @@ static bool is_invaild_filename(char * filename);
 static struct fd_info * seek_fd_info (struct thread *curr, int fd);
 static struct fd_info * dup_fd_info(struct fd_info *oldfd_info, int newfd);
 static bool is_valid_buffer(char *buffer, int size, void* arg);
-static bool is_sys_mmap_args_vaild(void *addr, size_t length);
+static bool is_sys_mmap_args_vaild(void *addr, size_t length, off_t offset);
 static bool is_sys_munmap_args_vaild(void *addr);
 static bool is_va_vaild(void *addr, size_t length);
 static struct file *seek_sys_mmap_fd (int fd);
@@ -475,7 +475,7 @@ sys_mmap (struct intr_frame *f) {
 	int fd = f->R.r10;
 	off_t offset = f->R.r8;
 
-	if (!is_sys_mmap_args_vaild(addr, length)) { // fd 빼고 나머지 검사
+	if (!is_sys_mmap_args_vaild(addr, length, offset)) { // fd 빼고 나머지 검사
 		f->R.rax = NULL;
 		return;
 	} // 
@@ -606,8 +606,9 @@ static struct fd_info * seek_fd_info (struct thread *curr, int fd) {
 }
 
 static bool
-is_sys_mmap_args_vaild(void *addr, size_t length) {
-	if(pg_ofs(addr) != 0
+is_sys_mmap_args_vaild(void *addr, size_t length, off_t offset) {
+	if (   pg_ofs(addr) != 0
+		|| pg_ofs(offset) != 0
 		|| length == 0
 		|| addr_isnt_user_vaild(addr) || addr_isnt_user_vaild(((char *)addr) + length) || !is_va_vaild(addr, length)) { 
 		return false;
