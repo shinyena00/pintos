@@ -39,7 +39,8 @@ uninit_new (struct page *page, void *va, vm_initializer *init,
 			.type = type,
 			.aux = aux,
 			.page_initializer = initializer,
-		}
+		},
+		.pml4 = thread_current()->pml4
 	};
 }
 

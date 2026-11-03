@@ -47,7 +47,7 @@ page_get_type (struct page *page) {
 /* Helpers */
 static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
-static struct frame *vm_evict_frame (void);
+static void *vm_evict_kva (void);
 static bool copy_frame(struct page *dst_page, struct page *src_page);
 
 static uint64_t
@@ -277,10 +277,18 @@ vm_handle_wp (struct page *page) {
 
 		struct frame *new_frame = vm_get_frame();
 		memcpy(new_frame->kva, cow_frame->kva, PGSIZE);
+		pml4_clear_page(page->pml4, page->va);
+		if(!pml4_set_page(page->pml4, page->va, new_frame->kva, page->is_writable)) { // va, kva should be page aligned
+			palloc_free_page(new_frame->kva);
+			free(new_frame);
+			page->frame = NULL;
+			return false;
+		}
 
 		intr_set_level(old_lv);
 		page->frame = new_frame;
 		list_push_back(&new_frame->shared_page, &page->shared_page_element);
+		
 		return true;
 	} else {
 		return vm_do_claim_page(page);
@@ -546,6 +554,8 @@ page_copy(struct page *src_page) {
 		if (!pml4_set_page(thread_current()->pml4, dst_page->va, dst_page->frame->kva, dst_page->is_writable)) {
 			goto error;
 		}
+		dst_page->pml4 = thread_current()->pml4;
+		dst_page->thread = thread_current();
 		//PML4가 이니셜라이즈 되고 나서 프레임이 있으면 == uninit이 아니면 퍼미션 설정해야함..!
 		pml4_set_writable(src_page->thread->pml4, src_page->va, 0);
 		pml4_set_writable(dst_page->thread->pml4, dst_page->va, 0);
