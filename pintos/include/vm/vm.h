@@ -74,6 +74,7 @@ struct frame {
 	struct page *page;
 	struct list shared_page;
 	size_t swap_index;
+	bool now_evicting;
 };
 
 struct file_src {
