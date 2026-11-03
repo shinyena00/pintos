@@ -6,7 +6,6 @@
 #include "lib/string.h"
 #include "threads/mmu.h"
 #include "filesys/filesys.h"
-#include "lib/kernel/list.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
@@ -108,7 +107,7 @@ static void
 file_backed_destroy (struct page *page) {
 	struct file_page *file_page = &page->file;
 	struct file_src *file_src = file_page->file_src;
-	struct frame *frame = page->frame;
+
 	if(page->frame == NULL) {
 		// nothing to do.
 	} else {

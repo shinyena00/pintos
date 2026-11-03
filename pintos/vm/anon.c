@@ -6,7 +6,6 @@
 #include "threads/synch.h"
 #include "lib/kernel/bitmap.h"
 #include "threads/malloc.h"
-#include "threads/mmu.h"
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
@@ -51,6 +50,7 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	
 	page->anon = (struct anon_page) {
 		/* TODO: executable을 evict할 때 swap slot으로 보내지 않는다면, aux 복사해줘야 함*/
+		.swap_index = NO_SLOT
 	};
 
 	return true;
@@ -77,25 +77,23 @@ copy_frame_from_swap (size_t swap_index, void *kva) {
 }
 
 static void
-pop_frame_from_swap (struct page *page, void *kva) {
+pop_frame_from_swap (struct anon_page *anon_page, void *kva) {
 
-	ASSERT(page->frame->swap_index != NO_SLOT);
+	ASSERT(anon_page->swap_index != NO_SLOT);
 
-	size_t swap_index = page->frame->swap_index;
+	copy_frame_from_swap(anon_page->swap_index, kva);
 
-	copy_frame_from_swap(swap_index, kva);
+	free_disk_slot(anon_page->swap_index);
 
-	free_disk_slot(swap_index);
-
-	page->frame->swap_index = NO_SLOT;
+	anon_page->swap_index = NO_SLOT;
 }
 
 /* Swap in the page by read contents from the swap disk. */
-static bool
+static bool /*이건 실패하는 경로가 없는 건가?*/
 anon_swap_in (struct page *page, void *kva) {
-	// struct anon_page *anon_page = &page->anon;
+	struct anon_page *anon_page = &page->anon;
 
-	pop_frame_from_swap(page, kva);
+	pop_frame_from_swap(anon_page, kva);
 
 	return true;
 	
@@ -125,13 +123,12 @@ acquire_slot (void) {
 }
 
 static size_t
-push_frame_to_swap (void *kva) {
+push_frame_to_swap (struct anon_page *anon_page, void *kva) {
 
 	size_t swap_index = acquire_slot();
 
-	enum intr_level old_lv = intr_enable();
 	frame_copy_to_disk(swap_index, kva);
-	intr_set_level(old_lv);
+
 	return swap_index;
 
 }
@@ -139,9 +136,9 @@ push_frame_to_swap (void *kva) {
 /* Swap out the page by writing contents to the swap disk. */
 static bool
 anon_swap_out (struct page *page) {
-	// struct anon_page *anon_page = &page->anon;
+	struct anon_page *anon_page = &page->anon;
 
-	page->frame->swap_index = push_frame_to_swap (page->frame->kva);
+	anon_page->swap_index = push_frame_to_swap (anon_page, page->frame->kva);
 
 	return true;
 }
@@ -149,14 +146,10 @@ anon_swap_out (struct page *page) {
 /* Destroy the anonymous page. PAGE will be freed by the caller. */
 static void
 anon_destroy (struct page *page) {
-	// struct anon_page *anon_page = &page->anon;
-	struct frame *frame = page->frame;
-
-	if(frame == NULL) {
-		return;
-	}
-
-	if (frame->swap_index != NO_SLOT) {
-		free_disk_slot(frame->swap_index);
+	struct anon_page *anon_page = &page->anon;
+	if(page->frame == NULL) {
+		free_disk_slot(anon_page->swap_index);
+	} else {
+		free(page->frame);
 	}
 }

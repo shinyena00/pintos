@@ -38,7 +38,10 @@
                 "instanceLimit": 1,
                 "reevaluateOnRerun": true
             },
-            "group": "build"
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
         },
         {
             "label": "Pintos: prepare debug",
@@ -55,10 +58,6 @@
                 "panel": "dedicated",
                 "clear": true,
                 "focus": true
-            },
-            "group": {
-                "kind": "build",
-                "isDefault": true
             }
         }
     ]

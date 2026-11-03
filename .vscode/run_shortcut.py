@@ -126,7 +126,7 @@ def run_all():
 
 
 def select_test(project, shortcut, allow_all=False, allow_range=False):
-    tests = test_names(project, include_all=(shortcut == 'F5'))
+    tests = test_names(project)
     if not tests:
         raise ValueError(f'No tests found for {project}')
     print(f'\n{shortcut}: {project} 테스트 선택', flush=True)

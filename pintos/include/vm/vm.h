@@ -4,7 +4,6 @@
 #include "threads/palloc.h"
 #include "kernel/hash.h"
 #include "filesys/file.h"
-#include "lib/kernel/list.h"
 
 enum vm_type {
 	/* page not initialized */
@@ -47,11 +46,9 @@ struct page {
 	const struct page_operations *operations;
 	void *va;              /* Address in terms of user space */
 	struct frame *frame;   /* Back reference for frame */
-	
+
 	/* Your implementation */
 	struct hash_elem element;
-	struct thread *thread;
-	struct list_elem shared_page_element;
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -64,16 +61,12 @@ struct page {
 #endif
 	};
 	bool is_writable;
-	uint64_t *pml4;
 };
 
 /* The representation of "frame" */
 struct frame {
 	void *kva;
-	//TODO: deprecated - page 없애기
 	struct page *page;
-	struct list shared_page;
-	size_t swap_index;
 };
 
 struct file_src {
