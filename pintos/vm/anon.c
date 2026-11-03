@@ -129,8 +129,9 @@ push_frame_to_swap (void *kva) {
 
 	size_t swap_index = acquire_slot();
 
+	enum intr_level old_lv = intr_enable();
 	frame_copy_to_disk(swap_index, kva);
-
+	intr_set_level(old_lv);
 	return swap_index;
 
 }

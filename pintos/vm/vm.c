@@ -259,26 +259,28 @@ vm_stack_growth (void *addr) {
 /* Handle the fault on write_protected page */
 static bool
 vm_handle_wp (struct page *page) {
+
 	if(!page->is_writable) {
 		return false;
 	} else if(page->frame != NULL && page->frame->kva != NULL) {
 		// faux-wp, frame->kva == NULL인 경우는 do claim으로 넘어가야, handle_wp로 들어가야 하는 경우는 cow인 경우밖에 없음
 		struct frame *cow_frame = page->frame;
 
-		list_remove(&page->shared_page_element);
-
 		enum intr_level old_lv = intr_disable();
-
-		struct frame *new_frame = vm_get_frame();
-		memcpy(new_frame->kva, cow_frame->kva, PGSIZE);
+		list_remove(&page->shared_page_element);
 
 		if(list_size(&cow_frame->shared_page) == 1) {
 			struct page *remain_page = list_entry(list_begin(&cow_frame->shared_page), struct page, shared_page_element);
 			pml4_set_writable(remain_page->pml4, remain_page->va, true);
 		}
-		page->frame = new_frame;
-		list_insert(&new_frame->shared_page, &page->shared_page_element);
+
+
+		struct frame *new_frame = vm_get_frame();
+		memcpy(new_frame->kva, cow_frame->kva, PGSIZE);
+
 		intr_set_level(old_lv);
+		page->frame = new_frame;
+		list_push_back(&new_frame->shared_page, &page->shared_page_element);
 		return true;
 	} else {
 		return vm_do_claim_page(page);
@@ -318,7 +320,7 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 		}
 	}
 
-	if(!page->is_writable && write) {
+	if(!not_present && write) {
 		return vm_handle_wp(page);
 	}
 
@@ -338,6 +340,7 @@ vm_dealloc_page (struct page *page) {
 		if(list_size(&frame->shared_page) >= 1) {
 			pml4_clear_page(page->pml4, page->va);
 			page->frame = NULL;
+			pml4_clear_page(page->pml4, page->va);
 		}
 	}
 	destroy (page);
@@ -568,6 +571,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 			return false;
 		}
 		if (!spt_insert_page(dst, dst_page)){
+			printf("spt copy exception\n");
 			if (dst_page->operations->type == VM_UNINIT && dst_page->uninit.aux != NULL){
 				free(dst_page->uninit.aux);
 			}
