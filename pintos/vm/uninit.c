@@ -34,6 +34,7 @@ uninit_new (struct page *page, void *va, vm_initializer *init,
 		.va = va,
 		.frame = NULL, /* no frame for now */
 		.thread = thread_current(),
+		.pml4 = thread_current()->pml4,
 		.uninit = (struct uninit_page) {
 			.init = init,
 			.type = type,

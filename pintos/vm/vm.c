@@ -197,6 +197,7 @@ static void *
 vm_evict_kva (void) {
 	enum intr_level old_level = intr_disable();
 	struct frame *victim = vm_get_victim ();
+	victim->now_evicting = true;
 	intr_set_level(old_level);
 	if (!victim) {
 		return NULL;
@@ -233,7 +234,7 @@ vm_get_frame (void) {
 	/* TODO: Fill this function. */
 	frame = malloc(sizeof(*frame));
 	ASSERT (frame != NULL);
-
+	frame->now_evicting = false;
 	frame->kva = vm_get_kva();
 	// TODO: frame table 없는 경우이므로 table 있다면 업데이트 해줘야
 	list_init(&frame->shared_page);
@@ -265,9 +266,9 @@ vm_handle_wp (struct page *page) {
 	} else if(page->frame != NULL && page->frame->kva != NULL) {
 		// faux-wp, frame->kva == NULL인 경우는 do claim으로 넘어가야, handle_wp로 들어가야 하는 경우는 cow인 경우밖에 없음
 		struct frame *cow_frame = page->frame;
+		cow_frame->now_evicting = true;
 
 		enum intr_level old_lv = intr_disable();
-		list_remove(&page->shared_page_element);
 
 		if(list_size(&cow_frame->shared_page) == 1) {
 			struct page *remain_page = list_entry(list_begin(&cow_frame->shared_page), struct page, shared_page_element);
@@ -277,10 +278,15 @@ vm_handle_wp (struct page *page) {
 
 		struct frame *new_frame = vm_get_frame();
 		memcpy(new_frame->kva, cow_frame->kva, PGSIZE);
-
-		intr_set_level(old_lv);
+		pml4_clear_page(page->pml4, page->va);
+		if (!pml4_set_page(page->pml4, page->va, new_frame->kva, true)){
+			PANIC("꺄아아아악");
+		}
 		page->frame = new_frame;
+		list_remove(&page->shared_page_element);
 		list_push_back(&new_frame->shared_page, &page->shared_page_element);
+		cow_frame->now_evicting = false;
+		intr_set_level(old_lv);
 		return true;
 	} else {
 		return vm_do_claim_page(page);
@@ -475,6 +481,7 @@ copy_frame(struct page *dst_page, struct page *src_page) {
 	dst_page->frame = src_page->frame;
 	dst_page->is_writable = src_page->is_writable;
 	dst_page->thread = thread_current();
+	dst_page->pml4 = thread_current()->pml4;
 
 	list_push_back(&src_page->frame->shared_page, &dst_page->shared_page_element);
 
@@ -629,7 +636,7 @@ spt_get_unaccessed_page_with_frame (struct thread *thread, struct supplemental_p
 	hash_first(&i, &spt->hash);
 	while (curr = hash_next(&i)) {
 		page = hash_entry(curr, struct page, element);
-		if (page->frame && page->frame->kva && !check_all_shared_pages_accessed(page->frame)) {
+		if (page->frame && page->frame->kva && !page->frame->now_evicting && !check_all_shared_pages_accessed(page->frame)) {
 			return page;
 		}
 	}
@@ -645,7 +652,7 @@ spt_get_any_page_with_frame (struct supplemental_page_table *spt) {
 	hash_first(&i, &spt->hash);
 	while (curr = hash_next(&i)) {
 		page = hash_entry(curr, struct page, element);
-		if (page->frame && page->frame->kva) {
+		if (page->frame && page->frame->kva && !page->frame->now_evicting) {
 			return page;
 		}
 	}
