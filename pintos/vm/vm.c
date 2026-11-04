@@ -273,7 +273,6 @@ vm_handle_wp (struct page *page) {
 			pml4_set_writable(remain_page->pml4, remain_page->va, true);
 			return true;
 		}
-		
 		list_remove(&page->shared_page_element);
 
 		if(list_size(&cow_frame->shared_page) == 1) {
@@ -465,12 +464,12 @@ page_copy_anon(struct page *dst_page, struct page *src_page) {
 }
 
 static struct file_src *
-copy_file_src(struct page *src_page) {
+copy_file_src(struct file_src * file_src) {
 	struct file_src *aux = malloc(sizeof(struct file_src));
 	if (!aux) {
 		return NULL;
 	}
-	memcpy(aux, src_page->file.file_src, sizeof(struct file_src));
+	memcpy(aux, file_src, sizeof(struct file_src));
 	return aux;
 }
 
@@ -622,7 +621,7 @@ spt_set_unaccessed (struct thread *thread, struct supplemental_page_table *spt) 
 }
 
 static bool
-check_all_shared_pages_accessed (struct frame *frame) {
+check_any_shared_pages_accessed (struct frame *frame) {
 	struct page *page;
 	struct list_elem *curr;
 
@@ -646,7 +645,7 @@ spt_get_unaccessed_page_with_frame (struct thread *thread, struct supplemental_p
 	hash_first(&i, &spt->hash);
 	while (curr = hash_next(&i)) {
 		page = hash_entry(curr, struct page, element);
-		if (page->frame && page->frame->kva && !check_all_shared_pages_accessed(page->frame)) {
+		if (page->frame && page->frame->kva && !check_any_shared_pages_accessed(page->frame)) {
 			return page;
 		}
 	}
