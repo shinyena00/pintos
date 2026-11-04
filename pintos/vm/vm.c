@@ -267,6 +267,13 @@ vm_handle_wp (struct page *page) {
 		struct frame *cow_frame = page->frame;
 
 		enum intr_level old_lv = intr_disable();
+
+		if(list_size(&cow_frame->shared_page) == 1) {
+			struct page *remain_page = list_entry(list_begin(&cow_frame->shared_page), struct page, shared_page_element);
+			pml4_set_writable(remain_page->pml4, remain_page->va, true);
+			return true;
+		}
+		
 		list_remove(&page->shared_page_element);
 
 		if(list_size(&cow_frame->shared_page) == 1) {
